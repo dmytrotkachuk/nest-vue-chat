@@ -5,7 +5,7 @@
   <title>nest-vue-chat</title>
   <link rel="stylesheet" href="./styles.css">
   <link href="https://unpkg.com/vue-simple-notify/dist/vue-simple-notify.min.css">
-  <script src="https://cdn.jsdelivr.net/npm/vue@2/dist/vue.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
   <script src="https://unpkg.com/vue-simple-notify/dist/vue-simple-notify.min.js"></script>
   <script src="/socket.io/socket.io.js"></script>
 
@@ -13,14 +13,25 @@
 <body>
   <div id="v-app">
     <section class="alerts">
-      <alerts-component></alerts-component>
+      <alerts-component :items='alerts'></alerts-component>
     </section>
     <section class="chat">
-      <h1>{{title}}</h1>
+      <h1>{{title + ' by '+ username}}</h1>
+      <!--Room tabs-->
+      <div class="tab-row">
+        <button class="tab-btn" :class="{ active: activeRoom == 'general' }" @click="activeRoom = 'general'">General</button>
+        <button class="tab-btn" :class="{ active: activeRoom == 'typescript' }" @click="activeRoom = 'typescript'">TypeScript</button>
+        <button class="tab-btn" :class="{ active: activeRoom == 'nestjs' }" @click="activeRoom = 'nestjs'">NestJS</button>
+      </div>
+      <div class="tab-row">
+        Status: {{ isMemberOfActiveRoom ? 'Joined' : 'NOT Joined' }} <button @click="toggleRoomMembership()">{{ isMemberOfActiveRoom ? 'Leave' : 'Join' }}</button>
+      </div>
+      <!--Text area-->
       <ul>
-        <li v-for="(msg, index) in messages" :key="index+msg.message">
+        <li v-for="(msg, index) in messages[activeRoom]" :key="index+msg.message">
           <strong>{{msg.sender}}</strong> {{msg.message}}</li>
       </ul>
+      <!--Send form-->
       <form>
         <input type="text" placeholder="Enter your message..." v-model="text">
         <button type="submit" @click.prevent="sendChatMessage">Send message</button>
@@ -28,40 +39,81 @@
     </section>
   </div>
   <script>
-    Vue.component('slerts-component', VueSimpleNotify.VueSimpleNotify)
+    Vue.component('alerts-component', VueSimpleNotify.VueSimpleNotify)
     const app = new Vue({
       el:'#v-app',
       data:{
         title:'Websockets testing',
         username:'',
         text:'',
-        messages:[],
+        rooms:{
+          general:false,
+          typescript:false,
+          nestjs:false
+        },
+        messages:{
+          general:[],
+          typescript:[],
+          nestjs:[]
+        },
         socket: { chat:null, alert:null },
-        alerts:[]
+        alerts:[],
+        activeRoom: 'general'
       },
       methods:{
         sendChatMessage(){
-          this.socket.chat.emit('chatToServer', { sender: this.username, message: this.text })
+          if(this.isMemberOfActiveRoom){
+            this.socket.chat.emit('chatToServer', { sender: this.username, message: this.text , room:this.activeRoom})
           this.text=''
+          }else {
+            alert('You must to be a member of the active room to send messages!')
+          }
+
         },
         recieveChatMessage(msg){
-          this.messages.push(msg)
+          this.messages[msg.room].push(msg)
         },
-        recieveAlertMessage(msg){
-          this.alerts.push(msg)
+        recieveAlert(alert){
+          this.alerts.push(alert)
+        },
+        toggleRoomMembership(){
+        if(this.isMemberOfActiveRoom){
+          this.socket.chat.emit('leaveRoom', this.activeRoom)
+        }else {
+          this.socket.chat.emit('joinRoom', this.activeRoom)
+        }
+        }
+      },
+      computed:{
+        isMemberOfActiveRoom(){
+          return this.rooms[this.activeRoom]
         }
       },
       created(){
-        this.username = prompt("Enter your username")
+        this.username = prompt("Enter a username:")
+
         this.socket.chat= io('http://localhost:3000/chat')
-        this.socket.chat.on('chatToClient', (msg)=>{
+        this.socket.chat.on('chatToClient', (msg)=>
           this.recieveChatMessage(msg)
+        )
+
+        this.socket.chat.on('connect', ()=>{
+          this.toggleRoomMembership()
         })
 
-        this.socket.alerts = io('http://localhost:3000/alert')
-        this.socket.alerts.on('alertToClient', (msg)=>{
-          this.recieveAlertMessage(msg)
+        this.socket.chat.on('joinedRoom', (room)=>{
+          this.rooms[room] = true
         })
+        this.socket.chat.on('leftRoom', (room)=>{
+          this.rooms[room] = false
+        })
+
+
+        this.socket.alerts = io('http://localhost:3000/alert')
+        this.socket.alerts.on('alertToClient', (alert)=>
+          this.recieveAlert(alert)
+        )
+
       }
     })
   </script>
